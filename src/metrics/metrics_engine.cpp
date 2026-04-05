@@ -11,6 +11,21 @@ BacktestSnapshot MetricsEngine::compute(const std::vector<Trade>& trades,
     BacktestSnapshot snap;
     snap.total_trades = static_cast<int>(trades.size());
 
+    // Always compute equity-curve-based metrics, even with zero trades
+    std::vector<double> returns;
+    const auto& eq = equity_curve.equity;
+    if (eq.size() > 1) {
+        for (size_t i = 1; i < eq.size(); ++i) {
+            if (eq[i - 1] != 0.0) {
+                returns.push_back((eq[i] - eq[i - 1]) / eq[i - 1]);
+            }
+        }
+    }
+    snap.sharpe_ratio = sharpe_ratio(returns);
+    snap.sortino_ratio = sortino_ratio(returns);
+    snap.max_drawdown = max_drawdown(eq);
+    snap.max_drawdown_pct = max_drawdown_pct(eq);
+
     if (trades.empty()) return snap;
 
     double total_pnl = 0.0;
@@ -33,26 +48,9 @@ BacktestSnapshot MetricsEngine::compute(const std::vector<Trade>& trades,
     snap.total_pnl = total_pnl;
     snap.winning_trades = winners;
     snap.losing_trades = losers;
-    snap.win_rate = (snap.total_trades > 0) ?
-        static_cast<double>(winners) / snap.total_trades : 0.0;
+    snap.win_rate = static_cast<double>(winners) / snap.total_trades;
     snap.profit_factor = (gross_loss > 0.0) ? gross_profit / gross_loss : 0.0;
     snap.expectancy = total_pnl / snap.total_trades;
-
-    // Compute returns from equity curve
-    std::vector<double> returns;
-    const auto& eq = equity_curve.equity;
-    if (eq.size() > 1) {
-        for (size_t i = 1; i < eq.size(); ++i) {
-            if (eq[i - 1] != 0.0) {
-                returns.push_back((eq[i] - eq[i - 1]) / eq[i - 1]);
-            }
-        }
-    }
-
-    snap.sharpe_ratio = sharpe_ratio(returns);
-    snap.sortino_ratio = sortino_ratio(returns);
-    snap.max_drawdown = max_drawdown(eq);
-    snap.max_drawdown_pct = max_drawdown_pct(eq);
 
     return snap;
 }

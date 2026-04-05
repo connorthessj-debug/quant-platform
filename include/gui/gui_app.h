@@ -13,6 +13,16 @@
 #include <vector>
 #include <memory>
 
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 namespace qp {
 
 class GuiApp {
@@ -43,13 +53,6 @@ private:
     std::string format_snapshot(const BacktestSnapshot& snap) const;
 
 #ifdef _WIN32
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <windows.h>
     struct WinData;
     std::unique_ptr<WinData> win_data_;
     static WinData* g_win_data_;
