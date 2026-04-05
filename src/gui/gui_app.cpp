@@ -127,6 +127,8 @@ int GuiApp::run(int argc, char* argv[]) {
     if (app_config_.strategy_name == "SMA_Crossover") {
         strategy_ = std::make_unique<SmaCrossover>();
     } else {
+        Logger::log_warning("Unknown strategy '" + app_config_.strategy_name +
+                           "', falling back to SMA_Crossover");
         strategy_ = std::make_unique<SmaCrossover>();
     }
 
@@ -173,6 +175,8 @@ void GuiApp::run_console(int argc, char* argv[]) {
     if (app_config_.strategy_name == "SMA_Crossover") {
         strategy_ = std::make_unique<SmaCrossover>();
     } else {
+        Logger::log_warning("Unknown strategy '" + app_config_.strategy_name +
+                           "', falling back to SMA_Crossover");
         strategy_ = std::make_unique<SmaCrossover>();
     }
 

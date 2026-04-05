@@ -1,6 +1,15 @@
 @echo off
 echo === Building Quant Platform with MinGW-w64 ===
 
+REM Requires: CMake and MinGW-w64 (g++, mingw32-make) on PATH.
+
+where cmake >nul 2>nul
+if errorlevel 1 (
+    echo ERROR: cmake not found on PATH.
+    pause
+    exit /b 1
+)
+
 if not exist build_mingw mkdir build_mingw
 cd build_mingw
 

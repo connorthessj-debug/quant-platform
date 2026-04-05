@@ -17,7 +17,6 @@ ArchitecturesInstallIn64BitMode=x64compatible
 Source: "..\build_msvc\Release\QuantPlatform.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\config\*"; DestDir: "{app}\config"; Flags: recursesubdirs
 Source: "..\data\*"; DestDir: "{app}\data"; Flags: recursesubdirs
-Source: "..\assets\*"; DestDir: "{app}\assets"; Flags: recursesubdirs skipifsourcedoesntexist
 
 [Icons]
 Name: "{group}\Quant Platform"; Filename: "{app}\QuantPlatform.exe"
