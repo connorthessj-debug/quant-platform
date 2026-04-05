@@ -1,0 +1,15 @@
+Read and follow `Claude.md` exactly.
+
+Then adopt the behavior described in `OrchestratorAgent.md`.
+
+Start at Stage 1 and proceed stage by stage:
+1. read and align
+2. generate
+3. harden
+4. prepare Codex review
+
+Do not skip stages.
+Do not compress unresolved stages into one answer.
+Prefer compile reliability over speculative feature depth.
+
+When you reach Codex review handoff, output the exact review prompt text I should use.

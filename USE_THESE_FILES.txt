@@ -1,0 +1,18 @@
+# Drop-In File Set
+
+Put these files in the root of your project:
+
+- Claude.md
+- OrchestratorAgent.md
+- CodexReviewer.md
+- review_with_codex.md
+- start_prompt.txt
+
+## Recommended order
+
+1. Open the repo in Claude Code
+2. Ensure `Claude.md` is in the root
+3. Paste the contents of `start_prompt.txt`
+4. Let Claude Code generate and harden
+5. Use `review_with_codex.md` for the Codex review loop
+6. Build with the generated Windows build scripts
