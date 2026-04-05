@@ -4,7 +4,7 @@ echo === Building Quant Platform with MSVC ===
 if not exist build_msvc mkdir build_msvc
 cd build_msvc
 
-cmake .. -G "Visual Studio 17 2022" -A x64
+cmake .. -A x64
 if errorlevel 1 (
     echo CMake configuration failed.
     pause

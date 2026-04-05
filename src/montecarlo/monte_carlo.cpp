@@ -14,6 +14,11 @@ MCResult MonteCarlo::run(const std::vector<Trade>& trades, const MCConfig& confi
         return result;
     }
 
+    if (config.iterations <= 0) {
+        Logger::log_warning("Monte Carlo: iterations must be positive");
+        return result;
+    }
+
     Logger::log_info("Running Monte Carlo with " + std::to_string(config.iterations) +
                     " iterations on " + std::to_string(trades.size()) + " trades");
 

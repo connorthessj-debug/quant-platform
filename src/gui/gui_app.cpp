@@ -3,18 +3,16 @@
 #include "io/csv_reader.h"
 #include "strategy/sma_crossover.h"
 #include "metrics/metrics_engine.h"
+#include "montecarlo/monte_carlo.h"
+#include "optimization/optimizer.h"
+#include "optimization/param_space.h"
+#include "walkforward/walk_forward.h"
+#include "truth/truth_engine.h"
 #include <sstream>
 #include <iomanip>
 #include <iostream>
 
 #ifdef _WIN32
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <windows.h>
 
 namespace qp {
 
@@ -22,7 +20,6 @@ static const int ID_BTN_LOAD = 101;
 static const int ID_BTN_RUN = 102;
 static const int ID_OUTPUT = 103;
 static const int ID_STATUS = 104;
-static const UINT WM_APP_RESULT = WM_APP + 1;
 
 struct GuiApp::WinData {
     HWND hwnd_main = nullptr;
@@ -33,29 +30,27 @@ struct GuiApp::WinData {
     GuiApp* app = nullptr;
 };
 
-static GuiApp::WinData* g_win_data = nullptr;
+GuiApp::WinData* GuiApp::g_win_data_ = nullptr;
 
 GuiApp::GuiApp() : win_data_(std::make_unique<WinData>()) {
     win_data_->app = this;
-    g_win_data = win_data_.get();
+    g_win_data_ = win_data_.get();
 }
 
 GuiApp::~GuiApp() {
-    g_win_data = nullptr;
+    g_win_data_ = nullptr;
 }
 
-long long __stdcall GuiApp::window_proc(void* hwnd, unsigned int msg,
-                                          unsigned long long wparam,
-                                          long long lparam) {
-    HWND h = static_cast<HWND>(hwnd);
+LRESULT CALLBACK GuiApp::window_proc(HWND hwnd, UINT msg,
+                                      WPARAM wparam, LPARAM lparam) {
     switch (msg) {
         case WM_COMMAND:
-            if (g_win_data && g_win_data->app) {
+            if (g_win_data_ && g_win_data_->app) {
                 if (LOWORD(wparam) == ID_BTN_LOAD) {
-                    g_win_data->app->load_data(g_win_data->app->app_config_.data_path);
+                    g_win_data_->app->load_data(g_win_data_->app->app_config_.data_path);
                 } else if (LOWORD(wparam) == ID_BTN_RUN) {
-                    g_win_data->app->run_backtest();
-                    g_win_data->app->display_results();
+                    g_win_data_->app->run_backtest();
+                    g_win_data_->app->display_results();
                 }
             }
             return 0;
@@ -63,13 +58,13 @@ long long __stdcall GuiApp::window_proc(void* hwnd, unsigned int msg,
             PostQuitMessage(0);
             return 0;
     }
-    return DefWindowProcA(h, msg, static_cast<WPARAM>(wparam), static_cast<LPARAM>(lparam));
+    return DefWindowProcA(hwnd, msg, wparam, lparam);
 }
 
 void GuiApp::create_window() {
     WNDCLASSEXA wc = {};
     wc.cbSize = sizeof(WNDCLASSEXA);
-    wc.lpfnWndProc = reinterpret_cast<WNDPROC>(window_proc);
+    wc.lpfnWndProc = window_proc;
     wc.hInstance = GetModuleHandleA(nullptr);
     wc.lpszClassName = "QuantPlatformClass";
     wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
@@ -126,7 +121,14 @@ int GuiApp::run(int argc, char* argv[]) {
     (void)argc; (void)argv;
 
     app_config_ = AppConfig::load("config/app_config.json");
-    strategy_ = std::make_unique<SmaCrossover>();
+    opt_config_ = OptimizerConfig::load("config/optimizer_config.json");
+    truth_config_ = TruthEngineConfig::load("config/truth_engine_config.json");
+
+    if (app_config_.strategy_name == "SMA_Crossover") {
+        strategy_ = std::make_unique<SmaCrossover>();
+    } else {
+        strategy_ = std::make_unique<SmaCrossover>();
+    }
 
     create_window();
     append_output("Quant Platform v1.0");
@@ -165,7 +167,14 @@ void GuiApp::run_console(int argc, char* argv[]) {
     std::cout << "=== Quant Platform v1.0 (Console Mode) ===" << std::endl;
 
     app_config_ = AppConfig::load("config/app_config.json");
-    strategy_ = std::make_unique<SmaCrossover>();
+    opt_config_ = OptimizerConfig::load("config/optimizer_config.json");
+    truth_config_ = TruthEngineConfig::load("config/truth_engine_config.json");
+
+    if (app_config_.strategy_name == "SMA_Crossover") {
+        strategy_ = std::make_unique<SmaCrossover>();
+    } else {
+        strategy_ = std::make_unique<SmaCrossover>();
+    }
 
     load_data(app_config_.data_path);
     if (!data_loaded_) {
@@ -226,10 +235,43 @@ void GuiApp::run_backtest() {
     snapshot_ = MetricsEngine::compute(backtest_result_.trades,
                                         backtest_result_.equity_curve,
                                         app_config_.initial_capital);
+    // --- Monte Carlo ---
+    MCConfig mc_config;
+    mc_config.iterations = truth_config_.mc_iterations;
+    mc_config.slippage_perturbation_bps = truth_config_.slippage_perturbation_bps;
+    mc_config.initial_capital = app_config_.initial_capital;
+    mc_result_ = MonteCarlo::run(backtest_result_.trades, mc_config);
+
+    // --- Optimizer ---
+    ParamSpace param_space;
+    param_space.ranges.push_back({"fast_period", 5.0, 20.0, 1.0});
+    param_space.ranges.push_back({"slow_period", 20.0, 50.0, 5.0});
+    auto opt_clone = strategy_->clone();
+    opt_result_ = Optimizer::run(*opt_clone, bars_, param_space, bt_config,
+                                  opt_config_.objective, opt_config_.max_iterations);
+
+    // --- Walk-Forward Analysis ---
+    WFAConfig wfa_config;
+    auto wfa_clone = strategy_->clone();
+    wfa_result_ = WalkForward::run(*wfa_clone, bars_, param_space, bt_config,
+                                    wfa_config,
+                                    [](IStrategy& s, const std::vector<Bar>& b,
+                                       const ParamSpace& ps, const BacktestConfig& bc,
+                                       const std::string& obj) {
+                                        return Optimizer::find_best(s, b, ps, bc, obj);
+                                    });
+
+    // --- Truth Engine ---
+    TruthEngine truth_engine;
+    truth_report_ = truth_engine.validate(*strategy_, bars_, bt_config,
+                                           backtest_result_, snapshot_,
+                                           mc_result_, wfa_result_, opt_result_,
+                                           truth_config_);
+
     backtest_run_ = true;
 
 #ifdef _WIN32
-    SetWindowTextA(win_data_->hwnd_status, "Backtest complete");
+    SetWindowTextA(win_data_->hwnd_status, "Analysis complete");
 #endif
 }
 
@@ -237,6 +279,48 @@ void GuiApp::display_results() {
     if (!backtest_run_) return;
 
     std::string output = format_snapshot(snapshot_);
+
+    // Monte Carlo summary
+    std::ostringstream mc_ss;
+    mc_ss << std::fixed << std::setprecision(2);
+    mc_ss << "\r\n--- Monte Carlo Results ---\r\n";
+    mc_ss << "Mean Final Equity: $" << mc_result_.mean_final_equity << "\r\n";
+    mc_ss << "Survival Rate: " << (mc_result_.survival_rate * 100.0) << "%\r\n";
+    mc_ss << "Ruin Probability: " << (mc_result_.ruin_probability * 100.0) << "%\r\n";
+    mc_ss << "5th Percentile: $" << mc_result_.percentile_5 << "\r\n";
+    mc_ss << "95th Percentile: $" << mc_result_.percentile_95 << "\r\n";
+    output += mc_ss.str();
+
+    // Optimizer summary
+    std::ostringstream opt_ss;
+    opt_ss << std::fixed << std::setprecision(4);
+    opt_ss << "\r\n--- Optimizer Results ---\r\n";
+    opt_ss << "Evaluations: " << opt_result_.total_evaluations << "\r\n";
+    opt_ss << "Best Objective: " << opt_result_.best_objective << "\r\n";
+    for (const auto& kv : opt_result_.best_params.values) {
+        opt_ss << "  " << kv.first << " = " << kv.second << "\r\n";
+    }
+    output += opt_ss.str();
+
+    // Walk-Forward summary
+    std::ostringstream wfa_ss;
+    wfa_ss << std::fixed << std::setprecision(4);
+    wfa_ss << "\r\n--- Walk-Forward Analysis ---\r\n";
+    wfa_ss << "Consistency Score: " << wfa_result_.consistency_score << "\r\n";
+    wfa_ss << "Avg OOS Sharpe: " << wfa_result_.avg_oos_sharpe << "\r\n";
+    wfa_ss << "Consistent: " << (wfa_result_.is_consistent ? "YES" : "NO") << "\r\n";
+    output += wfa_ss.str();
+
+    // Truth Engine report
+    std::ostringstream truth_ss;
+    truth_ss << std::fixed << std::setprecision(2);
+    truth_ss << "\r\n--- Truth Engine Report ---\r\n";
+    truth_ss << "Score: " << truth_report_.score << "\r\n";
+    truth_ss << "Passed: " << (truth_report_.passed ? "YES" : "NO") << "\r\n";
+    for (const auto& flag : truth_report_.flags) {
+        truth_ss << "  Flag: " << flag << "\r\n";
+    }
+    output += truth_ss.str();
 
 #ifdef _WIN32
     append_output(output);

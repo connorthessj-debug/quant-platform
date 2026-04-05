@@ -85,7 +85,8 @@ target_link_libraries(qp_execution PUBLIC qp_common qp_core)
 add_library(qp_gui STATIC
     src/gui/gui_app.cpp
 )
-target_link_libraries(qp_gui PUBLIC qp_common qp_core qp_metrics qp_strategy qp_io)
+target_link_libraries(qp_gui PUBLIC qp_common qp_core qp_metrics qp_strategy qp_io
+                                     qp_montecarlo qp_optimization qp_walkforward qp_truth)
 
 # Review
 add_library(qp_review STATIC
@@ -125,7 +126,6 @@ endif()
 
 # --- Install Rules ---
 
-install(TARGETS QuantPlatform RUNTIME DESTINATION bin)
+install(TARGETS QuantPlatform RUNTIME DESTINATION .)
 install(DIRECTORY config/ DESTINATION config)
 install(DIRECTORY data/ DESTINATION data)
-install(DIRECTORY assets/ DESTINATION assets)

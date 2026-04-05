@@ -24,5 +24,7 @@ echo Output: build_mingw\QuantPlatform.exe
 xcopy /Y /I ..\config config\
 xcopy /Y /I /S ..\data data\
 
+echo NOTE: Installer scripts expect build_msvc\Release\QuantPlatform.exe
+echo       Copy the exe there if using installer: copy QuantPlatform.exe ..\build_msvc\Release\
 echo === Ready to run ===
 pause
