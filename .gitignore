@@ -3,7 +3,6 @@ build_msvc/
 build_mingw/
 *.o
 *.a
-*.exe
 *.obj
 *.lib
 *.dll
@@ -15,4 +14,3 @@ CMakeFiles/
 cmake_install.cmake
 Makefile
 build_win64/
-QuantPlatform_USB/

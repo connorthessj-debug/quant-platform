@@ -1,0 +1,13 @@
+{
+    "type": "csv",
+    "columns": [
+        {"name": "date", "type": "string", "format": "YYYY-MM-DD"},
+        {"name": "open", "type": "float"},
+        {"name": "high", "type": "float"},
+        {"name": "low", "type": "float"},
+        {"name": "close", "type": "float"},
+        {"name": "volume", "type": "float"}
+    ],
+    "delimiter": ",",
+    "header": true
+}

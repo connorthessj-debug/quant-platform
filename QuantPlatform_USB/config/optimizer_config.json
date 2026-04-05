@@ -1,0 +1,5 @@
+{
+    "max_iterations": 100,
+    "objective": "sharpe",
+    "exhaustive": true
+}
