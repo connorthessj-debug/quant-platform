@@ -1,0 +1,14 @@
+{
+    "strategy": "SMA_Crossover",
+    "parameters": {
+        "fast_period": 10,
+        "slow_period": 30,
+        "position_size": 100
+    },
+    "backtest": {
+        "initial_capital": 100000,
+        "commission_per_trade": 1.0,
+        "slippage_bps": 5.0,
+        "data_path": "data/sample/sample_ohlcv.csv"
+    }
+}
