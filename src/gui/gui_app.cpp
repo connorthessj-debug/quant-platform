@@ -2,12 +2,16 @@
 #include "common/logging.h"
 #include "io/csv_reader.h"
 #include "strategy/sma_crossover.h"
+#include "strategy/rsi_strategy.h"
+#include "strategy/macd_strategy.h"
 #include "metrics/metrics_engine.h"
 #include "montecarlo/monte_carlo.h"
 #include "optimization/optimizer.h"
 #include "optimization/param_space.h"
+#include "optimization/bayesian_optimizer.h"
 #include "walkforward/walk_forward.h"
 #include "truth/truth_engine.h"
+#include "reporting/report_generator.h"
 #include <sstream>
 #include <iomanip>
 #include <iostream>
@@ -124,13 +128,7 @@ int GuiApp::run(int argc, char* argv[]) {
     opt_config_ = OptimizerConfig::load("config/optimizer_config.json");
     truth_config_ = TruthEngineConfig::load("config/truth_engine_config.json");
 
-    if (app_config_.strategy_name == "SMA_Crossover") {
-        strategy_ = std::make_unique<SmaCrossover>();
-    } else {
-        Logger::log_warning("Unknown strategy '" + app_config_.strategy_name +
-                           "', falling back to SMA_Crossover");
-        strategy_ = std::make_unique<SmaCrossover>();
-    }
+    strategy_ = create_strategy(app_config_.strategy_name);
 
     create_window();
     append_output("Quant Platform v1.0");
@@ -172,13 +170,7 @@ void GuiApp::run_console(int argc, char* argv[]) {
     opt_config_ = OptimizerConfig::load("config/optimizer_config.json");
     truth_config_ = TruthEngineConfig::load("config/truth_engine_config.json");
 
-    if (app_config_.strategy_name == "SMA_Crossover") {
-        strategy_ = std::make_unique<SmaCrossover>();
-    } else {
-        Logger::log_warning("Unknown strategy '" + app_config_.strategy_name +
-                           "', falling back to SMA_Crossover");
-        strategy_ = std::make_unique<SmaCrossover>();
-    }
+    strategy_ = create_strategy(app_config_.strategy_name);
 
     load_data(app_config_.data_path);
     if (!data_loaded_) {
@@ -196,6 +188,32 @@ void GuiApp::run_console(int argc, char* argv[]) {
 
 // Shared implementation (both platforms)
 namespace qp {
+
+std::unique_ptr<IStrategy> GuiApp::create_strategy(const std::string& name) {
+    if (name == "SMA_Crossover") return std::make_unique<SmaCrossover>();
+    if (name == "RSI") return std::make_unique<RsiStrategy>();
+    if (name == "MACD") return std::make_unique<MacdStrategy>();
+    Logger::log_warning("Unknown strategy '" + name + "', falling back to SMA_Crossover");
+    return std::make_unique<SmaCrossover>();
+}
+
+ParamSpace GuiApp::default_param_space(const std::string& strategy_name) const {
+    ParamSpace space;
+    if (strategy_name == "RSI") {
+        space.ranges.push_back({"period", 5.0, 30.0, 1.0});
+        space.ranges.push_back({"oversold", 20.0, 40.0, 2.0});
+        space.ranges.push_back({"overbought", 60.0, 80.0, 2.0});
+    } else if (strategy_name == "MACD") {
+        space.ranges.push_back({"fast_period", 5.0, 20.0, 1.0});
+        space.ranges.push_back({"slow_period", 20.0, 40.0, 2.0});
+        space.ranges.push_back({"signal_period", 5.0, 15.0, 1.0});
+    } else {
+        // SMA_Crossover default
+        space.ranges.push_back({"fast_period", 5.0, 20.0, 1.0});
+        space.ranges.push_back({"slow_period", 20.0, 50.0, 2.0});
+    }
+    return space;
+}
 
 void GuiApp::load_data(const std::string& path) {
     bars_ = CsvReader::load_bars(path);
@@ -228,9 +246,20 @@ void GuiApp::run_backtest() {
     bt_config.commission_per_trade = app_config_.commission_per_trade;
     bt_config.slippage_bps = app_config_.slippage_bps;
 
+    // Initial params (sensible defaults per strategy).
     StrategyParams params;
-    params.set("fast_period", 10.0);
-    params.set("slow_period", 30.0);
+    if (app_config_.strategy_name == "RSI") {
+        params.set("period", 14.0);
+        params.set("oversold", 30.0);
+        params.set("overbought", 70.0);
+    } else if (app_config_.strategy_name == "MACD") {
+        params.set("fast_period", 12.0);
+        params.set("slow_period", 26.0);
+        params.set("signal_period", 9.0);
+    } else {
+        params.set("fast_period", 10.0);
+        params.set("slow_period", 30.0);
+    }
     params.set("position_size", 100.0);
     strategy_->configure(params);
 
@@ -239,6 +268,7 @@ void GuiApp::run_backtest() {
     snapshot_ = MetricsEngine::compute(backtest_result_.trades,
                                         backtest_result_.equity_curve,
                                         app_config_.initial_capital);
+
     // --- Monte Carlo ---
     MCConfig mc_config;
     mc_config.iterations = truth_config_.mc_iterations;
@@ -246,13 +276,14 @@ void GuiApp::run_backtest() {
     mc_config.initial_capital = app_config_.initial_capital;
     mc_result_ = MonteCarlo::run(backtest_result_.trades, mc_config);
 
-    // --- Optimizer ---
-    ParamSpace param_space;
-    param_space.ranges.push_back({"fast_period", 5.0, 20.0, 1.0});
-    param_space.ranges.push_back({"slow_period", 20.0, 50.0, 5.0});
+    // --- Bayesian Optimizer ---
+    ParamSpace param_space = default_param_space(app_config_.strategy_name);
+    BayesianOptConfig bo_config;
+    bo_config.n_initial = 10;
+    bo_config.n_iterations = std::max(10, opt_config_.max_iterations - 10);
     auto opt_clone = strategy_->clone();
-    opt_result_ = Optimizer::run(*opt_clone, bars_, param_space, bt_config,
-                                  opt_config_.objective, opt_config_.max_iterations);
+    opt_result_ = BayesianOptimizer::run(*opt_clone, bars_, param_space, bt_config,
+                                          opt_config_.objective, bo_config);
 
     // --- Walk-Forward Analysis ---
     WFAConfig wfa_config;
@@ -262,7 +293,11 @@ void GuiApp::run_backtest() {
                                     [](IStrategy& s, const std::vector<Bar>& b,
                                        const ParamSpace& ps, const BacktestConfig& bc,
                                        const std::string& obj) {
-                                        return Optimizer::find_best(s, b, ps, bc, obj);
+                                        BayesianOptConfig bc2;
+                                        bc2.n_initial = 6;
+                                        bc2.n_iterations = 14;
+                                        auto res = BayesianOptimizer::run(s, b, ps, bc, obj, bc2);
+                                        return res.best_params;
                                     });
 
     // --- Truth Engine ---
@@ -274,8 +309,18 @@ void GuiApp::run_backtest() {
 
     backtest_run_ = true;
 
+    // --- Reports ---
+    ReportGenerator::write_trade_log(backtest_result_.trades, "trade_log.csv");
+    ReportGenerator::write_equity_curve(backtest_result_.equity_curve, "equity_curve.csv");
+    ReportGenerator::write_text_report(backtest_result_, snapshot_, mc_result_,
+                                         opt_result_, wfa_result_, truth_report_,
+                                         app_config_.strategy_name, "report.txt");
+    ReportGenerator::write_html_report(backtest_result_, snapshot_, mc_result_,
+                                         opt_result_, wfa_result_, truth_report_,
+                                         app_config_.strategy_name, "report.html");
+
 #ifdef _WIN32
-    SetWindowTextA(win_data_->hwnd_status, "Analysis complete");
+    SetWindowTextA(win_data_->hwnd_status, "Analysis complete — reports written");
 #endif
 }
 
@@ -295,12 +340,12 @@ void GuiApp::display_results() {
     mc_ss << "95th Percentile: $" << mc_result_.percentile_95 << "\r\n";
     output += mc_ss.str();
 
-    // Optimizer summary
+    // Bayesian Optimizer summary
     std::ostringstream opt_ss;
     opt_ss << std::fixed << std::setprecision(4);
-    opt_ss << "\r\n--- Optimizer Results ---\r\n";
-    opt_ss << "Evaluations: " << opt_result_.total_evaluations << "\r\n";
-    opt_ss << "Best Objective: " << opt_result_.best_objective << "\r\n";
+    opt_ss << "\r\n--- Bayesian Optimizer (GP + Expected Improvement) ---\r\n";
+    opt_ss << "Evaluations:         " << opt_result_.total_evaluations << "\r\n";
+    opt_ss << "Best Objective:      " << opt_result_.best_objective << "\r\n";
     for (const auto& kv : opt_result_.best_params.values) {
         opt_ss << "  " << kv.first << " = " << kv.second << "\r\n";
     }
@@ -319,12 +364,15 @@ void GuiApp::display_results() {
     std::ostringstream truth_ss;
     truth_ss << std::fixed << std::setprecision(2);
     truth_ss << "\r\n--- Truth Engine Report ---\r\n";
-    truth_ss << "Score: " << truth_report_.score << "\r\n";
-    truth_ss << "Passed: " << (truth_report_.passed ? "YES" : "NO") << "\r\n";
+    truth_ss << "Score:               " << truth_report_.score << "/100\r\n";
+    truth_ss << "Passed:              " << (truth_report_.passed ? "YES" : "NO") << "\r\n";
     for (const auto& flag : truth_report_.flags) {
         truth_ss << "  Flag: " << flag << "\r\n";
     }
     output += truth_ss.str();
+
+    output += "\r\n--- Reports Written ---\r\n";
+    output += "  trade_log.csv, equity_curve.csv, report.txt, report.html\r\n";
 
 #ifdef _WIN32
     append_output(output);
@@ -335,20 +383,41 @@ void GuiApp::display_results() {
 
 std::string GuiApp::format_snapshot(const BacktestSnapshot& snap) const {
     std::ostringstream ss;
-    ss << std::fixed << std::setprecision(4);
-    ss << "--- Backtest Results ---\r\n";
-    ss << "Total Trades: " << snap.total_trades << "\r\n";
-    ss << "Winning: " << snap.winning_trades << "  Losing: " << snap.losing_trades << "\r\n";
-    ss << "Win Rate: " << std::setprecision(2) << (snap.win_rate * 100.0) << "%\r\n";
-    ss << "Total PnL: $" << std::setprecision(2) << snap.total_pnl << "\r\n";
-    ss << "Sharpe Ratio: " << std::setprecision(4) << snap.sharpe_ratio << "\r\n";
-    ss << "Sortino Ratio: " << snap.sortino_ratio << "\r\n";
-    ss << "Max Drawdown: $" << std::setprecision(2) << snap.max_drawdown << "\r\n";
-    ss << "Max Drawdown %: " << snap.max_drawdown_pct << "%\r\n";
-    ss << "Profit Factor: " << std::setprecision(4) << snap.profit_factor << "\r\n";
-    ss << "Expectancy: $" << std::setprecision(2) << snap.expectancy << "\r\n";
-    ss << "Final Equity: $" << backtest_result_.final_equity << "\r\n";
-    ss << "Total Commission: $" << backtest_result_.total_commission << "\r\n";
+    ss << std::fixed;
+    ss << "--- Backtest (" << app_config_.strategy_name << ") ---\r\n";
+    ss << std::setprecision(0);
+    ss << "Total Trades:        " << snap.total_trades << "\r\n";
+    ss << "Wins / Losses:       " << snap.winning_trades << " / " << snap.losing_trades << "\r\n";
+    ss << "Max Consec W / L:    " << snap.max_consecutive_wins << " / " << snap.max_consecutive_losses << "\r\n";
+    ss << std::setprecision(2);
+    ss << "Win Rate:            " << (snap.win_rate * 100.0) << "%\r\n";
+    ss << "Total PnL:           $" << snap.total_pnl << "\r\n";
+    ss << "Total Return:        " << snap.total_return_pct << "%\r\n";
+    ss << "CAGR:                " << (snap.cagr * 100.0) << "%\r\n";
+    ss << "Final Equity:        $" << backtest_result_.final_equity << "\r\n";
+    ss << "Commission:          $" << backtest_result_.total_commission << "\r\n";
+    ss << std::setprecision(4);
+    ss << "Sharpe Ratio:        " << snap.sharpe_ratio << "\r\n";
+    ss << "Sortino Ratio:       " << snap.sortino_ratio << "\r\n";
+    ss << "Calmar Ratio:        " << snap.calmar_ratio << "\r\n";
+    ss << "Omega Ratio:         " << snap.omega_ratio << "\r\n";
+    ss << std::setprecision(2);
+    ss << "Max Drawdown:        $" << snap.max_drawdown << "\r\n";
+    ss << "Max Drawdown %:      " << snap.max_drawdown_pct << "%\r\n";
+    ss << std::setprecision(4);
+    ss << "Ulcer Index:         " << snap.ulcer_index << "\r\n";
+    ss << "Recovery Factor:     " << snap.recovery_factor << "\r\n";
+    ss << "Profit Factor:       " << snap.profit_factor << "\r\n";
+    ss << std::setprecision(2);
+    ss << "Expectancy:          $" << snap.expectancy << "\r\n";
+    ss << "Payoff Ratio:        " << snap.payoff_ratio << "\r\n";
+    ss << "Avg Win / Loss:      $" << snap.avg_win << " / $" << snap.avg_loss << "\r\n";
+    ss << std::setprecision(4);
+    ss << "Skewness:            " << snap.skewness << "\r\n";
+    ss << "Excess Kurtosis:     " << snap.kurtosis << "\r\n";
+    ss << "Tail Ratio:          " << snap.tail_ratio << "\r\n";
+    ss << "VaR 95%:             " << (snap.value_at_risk_95 * 100.0) << "%\r\n";
+    ss << "CVaR 95%:            " << (snap.conditional_var_95 * 100.0) << "%\r\n";
     return ss.str();
 }
 

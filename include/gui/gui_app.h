@@ -6,6 +6,7 @@
 #include "metrics/backtest_snapshot.h"
 #include "montecarlo/monte_carlo.h"
 #include "optimization/optimizer.h"
+#include "optimization/param_space.h"
 #include "walkforward/walk_forward.h"
 #include "truth/truth_engine.h"
 #include "strategy/strategy_base.h"
@@ -51,6 +52,8 @@ private:
     void run_backtest();
     void display_results();
     std::string format_snapshot(const BacktestSnapshot& snap) const;
+    std::unique_ptr<IStrategy> create_strategy(const std::string& name);
+    ParamSpace default_param_space(const std::string& strategy_name) const;
 
 #ifdef _WIN32
     struct WinData;

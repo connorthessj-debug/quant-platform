@@ -39,6 +39,8 @@ target_link_libraries(qp_core PUBLIC qp_common qp_io)
 # Strategy
 add_library(qp_strategy STATIC
     src/strategy/sma_crossover.cpp
+    src/strategy/rsi_strategy.cpp
+    src/strategy/macd_strategy.cpp
     src/strategy/signal.cpp
 )
 target_link_libraries(qp_strategy PUBLIC qp_common)
@@ -64,6 +66,8 @@ target_link_libraries(qp_walkforward PUBLIC qp_common qp_core qp_metrics qp_stra
 # Optimization
 add_library(qp_optimization STATIC
     src/optimization/optimizer.cpp
+    src/optimization/gaussian_process.cpp
+    src/optimization/bayesian_optimizer.cpp
 )
 target_link_libraries(qp_optimization PUBLIC qp_common qp_core qp_metrics qp_strategy)
 
@@ -86,13 +90,20 @@ add_library(qp_gui STATIC
     src/gui/gui_app.cpp
 )
 target_link_libraries(qp_gui PUBLIC qp_common qp_core qp_metrics qp_strategy qp_io
-                                     qp_montecarlo qp_optimization qp_walkforward qp_truth)
+                                     qp_montecarlo qp_optimization qp_walkforward qp_truth
+                                     qp_reporting)
 
 # Review
 add_library(qp_review STATIC
     src/review/review_hook.cpp
 )
 target_link_libraries(qp_review PUBLIC qp_common)
+
+# Reporting
+add_library(qp_reporting STATIC
+    src/reporting/report_generator.cpp
+)
+target_link_libraries(qp_reporting PUBLIC qp_common qp_core qp_metrics qp_montecarlo qp_walkforward qp_optimization qp_truth)
 
 # --- Main Executable ---
 
@@ -108,6 +119,7 @@ target_link_libraries(QuantPlatform PRIVATE
     qp_truth
     qp_execution
     qp_review
+    qp_reporting
     qp_io
     qp_common
 )
