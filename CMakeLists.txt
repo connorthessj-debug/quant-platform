@@ -124,16 +124,9 @@ target_link_libraries(QuantPlatform PRIVATE
     qp_common
 )
 
-# Windows-specific linking
+# Windows-specific linking (console mode — no GUI subsystem)
 if(WIN32)
     target_link_libraries(QuantPlatform PRIVATE user32 gdi32 comctl32)
-    if(MSVC)
-        set_target_properties(QuantPlatform PROPERTIES
-            LINK_FLAGS "/ENTRY:mainCRTStartup /SUBSYSTEM:WINDOWS"
-        )
-    elseif(MINGW)
-        target_link_options(QuantPlatform PRIVATE -mwindows)
-    endif()
 endif()
 
 # --- Install Rules ---
