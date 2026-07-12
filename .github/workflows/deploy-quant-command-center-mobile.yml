@@ -1,0 +1,68 @@
+name: Deploy Quant Command Center Mobile
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "deploy/quant-command-center-mobile/**"
+      - ".github/workflows/deploy-quant-command-center-mobile.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Reconstruct mobile PWA
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p _site
+          cat deploy/quant-command-center-mobile/index.xz.b64.part-* \
+            | base64 --decode > /tmp/quant-command-index.html.xz
+          xz --decompress --stdout /tmp/quant-command-index.html.xz > _site/index.html
+          cp deploy/quant-command-center-mobile/manifest.webmanifest _site/manifest.webmanifest
+          cp deploy/quant-command-center-mobile/sw.js _site/sw.js
+          cp deploy/quant-command-center-mobile/icon.svg _site/icon.svg
+          touch _site/.nojekyll
+
+      - name: Validate deployment output
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s _site/index.html
+          test -s _site/manifest.webmanifest
+          test -s _site/sw.js
+          grep -q "Quant Command Center Mobile" _site/index.html
+          grep -q '"display": "standalone"' _site/manifest.webmanifest
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v6
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: _site
+          include-hidden-files: true
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
