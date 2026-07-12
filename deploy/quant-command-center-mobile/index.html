@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b0f14">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Quant Command">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <title>Quant Command Center Mobile</title>
+  <style>
+    html,body{margin:0;min-height:100%;background:#0b0f14;color:#e7edf5;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    body{display:grid;place-items:center;padding:24px;box-sizing:border-box}
+    .boot{width:min(360px,100%);border:1px solid #273240;border-radius:18px;background:#111720;padding:24px;box-sizing:border-box;box-shadow:0 20px 70px #0008}
+    .mark{width:46px;height:46px;border-radius:13px;display:grid;place-items:center;background:#192331;color:#3bd28f;font-weight:800;margin-bottom:18px}
+    h1{font-size:20px;margin:0 0 8px}p{color:#8d9aad;margin:0 0 18px;line-height:1.5}.bar{height:5px;background:#1a2431;border-radius:99px;overflow:hidden}.bar:after{content:"";display:block;width:45%;height:100%;background:#3bd28f;border-radius:99px;animation:load 1.1s infinite ease-in-out}@keyframes load{0%{transform:translateX(-110%)}100%{transform:translateX(330%)}}.error{color:#ff626f;white-space:pre-wrap}
+  </style>
+</head>
+<body>
+  <section class="boot"><div class="mark">QC</div><h1>Quant Command Center</h1><p id="status">Loading the mobile dashboard…</p><div class="bar" id="bar"></div></section>
+  <script>
+  (async () => {
+    const names = ["aa","ab","ac","ad","ae","af"].map(x => `app.html.gz.b64.part-${x}`);
+    const loaded = await Promise.all(names.map(async name => {
+      const response = await fetch(name);
+      if (!response.ok) throw new Error(`Could not load ${name} (${response.status})`);
+      return { name, text: await response.clone().text(), response };
+    }));
+    if ("caches" in window) {
+      const cache = await caches.open("quant-command-mobile-v2");
+      await Promise.all(loaded.map(item => cache.put(item.name, item.response)));
+    }
+    const parts = loaded.map(item => item.text);
+    if (!("DecompressionStream" in window)) throw new Error("This installation requires iOS 16.4 or newer.");
+    const b64 = parts.join("").replace(/\s+/g, "");
+    const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+    const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
+    const html = await new Response(stream).text();
+    document.open();
+    document.write(html);
+    document.close();
+  })().catch(error => {
+    document.getElementById("bar").remove();
+    const status = document.getElementById("status");
+    status.className = "error";
+    status.textContent = `The dashboard could not start.\n\n${error.message}`;
+  });
+  </script>
+</body>
+</html>
