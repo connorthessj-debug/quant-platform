@@ -1,0 +1,13 @@
+{
+  "name": "Quant Command Center Mobile",
+  "short_name": "Quant Command",
+  "description": "Mobile-first trading risk, journal, strategy research, and product operations dashboard.",
+  "start_url": "./index.html#today",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "background_color": "#0b0f14",
+  "theme_color": "#0b0f14",
+  "orientation": "portrait-primary",
+  "icons": [{"src":"icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}]
+}
